@@ -2,10 +2,9 @@ version: "3.8"
 
 services:
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:1.70.1
     restart: unless-stopped
-    ports:
-      - "5678:5678"
+    # Port removed - n8n only accessible via Caddy reverse proxy
     environment:
       # Host configuration
       - N8N_HOST=${N8N_HOST}
@@ -14,7 +13,7 @@ services:
       - WEBHOOK_URL=https://${N8N_HOST}/
       - GENERIC_TIMEZONE=Europe/Zagreb
       - TZ=Europe/Zagreb
-      
+
       # Database
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
@@ -22,12 +21,12 @@ services:
       - DB_POSTGRESDB_DATABASE=n8n
       - DB_POSTGRESDB_USER=${POSTGRES_USER}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
-      
+
       # Security
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=${N8N_USER}
       - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
-      
+
       # Execution settings
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=168
@@ -35,11 +34,11 @@ services:
       - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
       - EXECUTIONS_DATA_SAVE_ON_PROGRESS=false
       - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true
-      
+
       # Performance
       - N8N_PAYLOAD_SIZE_MAX=64
       - NODE_FUNCTION_ALLOW_EXTERNAL=axios,cheerio,moment
-      
+
     volumes:
       - n8n_data:/home/node/.n8n
       - ./workflows:/home/node/workflows:ro
@@ -55,6 +54,18 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   postgres:
     image: postgres:15-alpine
@@ -73,6 +84,18 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   caddy:
     image: caddy:2-alpine
@@ -90,6 +113,18 @@ services:
       - n8n
     networks:
       - automation
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+        reservations:
+          memory: 64M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # =========================================================================
   # WAHA - WhatsApp HTTP API (Self-hosted)
@@ -98,27 +133,27 @@ services:
   # API Docs:  http://localhost:3000/
   # =========================================================================
   waha:
-    image: devlikeapro/waha
+    image: devlikeapro/waha:2024.12.4
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       # Dashboard credentials
       - WAHA_DASHBOARD_ENABLED=true
       - WAHA_DASHBOARD_USERNAME=${WAHA_USER:-admin}
       - WAHA_DASHBOARD_PASSWORD=${WAHA_PASSWORD}
-      
+
       # Webhook to n8n (for incoming messages)
       - WHATSAPP_HOOK_URL=http://n8n:5678/webhook/whatsapp
       - WHATSAPP_HOOK_EVENTS=message,session.status
-      
+
       # Session settings
       - WHATSAPP_RESTART_ALL_SESSIONS=true
       - WHATSAPP_START_SESSION=default
-      
-      # API security (optional - enable in production)
-      # - WHATSAPP_API_KEY=${WAHA_API_KEY}
-      
+
+      # API security
+      - WHATSAPP_API_KEY=${WAHA_API_KEY}
+
     volumes:
       - waha_sessions:/app/.sessions
     networks:
@@ -129,6 +164,18 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   n8n_data:
