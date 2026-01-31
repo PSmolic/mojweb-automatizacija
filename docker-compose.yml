@@ -146,7 +146,7 @@ services:
     image: devlikeapro/waha:latest
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3002:3000"
     environment:
       # Dashboard credentials
       - WAHA_DASHBOARD_ENABLED=true
