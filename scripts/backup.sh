@@ -8,7 +8,7 @@
 # - n8n data volume
 # =============================================================================
 
-set -e
+set -euo pipefail
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,8 +19,10 @@ BACKUP_NAME="backup_${DATE}"
 RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
 
 # Load environment
-if [ -f "${PROJECT_DIR}/.env" ]; then
-    export $(grep -v '^#' "${PROJECT_DIR}/.env" | xargs)
+if [[ -f "${PROJECT_DIR}/.env" ]]; then
+    set -a
+    source "${PROJECT_DIR}/.env"
+    set +a
 fi
 
 # Create backup directory

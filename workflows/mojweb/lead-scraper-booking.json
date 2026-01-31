@@ -22,7 +22,13 @@
         "httpMethod": "POST",
         "path": "lead-scraper-booking",
         "responseMode": "responseNode",
-        "options": {}
+        "authentication": "headerAuth",
+        "options": {
+          "headerAuth": {
+            "name": "X-Webhook-Secret",
+            "value": "={{ $env.WEBHOOK_SECRET }}"
+          }
+        }
       },
       "id": "webhook-trigger",
       "name": "Webhook Trigger",

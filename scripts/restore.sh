@@ -5,7 +5,7 @@
 # Usage: ./restore.sh backup_20260126_120000.tar.gz
 # =============================================================================
 
-set -e
+set -euo pipefail
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,8 +13,10 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BACKUP_DIR="${PROJECT_DIR}/backups"
 
 # Load environment
-if [ -f "${PROJECT_DIR}/.env" ]; then
-    export $(grep -v '^#' "${PROJECT_DIR}/.env" | xargs)
+if [[ -f "${PROJECT_DIR}/.env" ]]; then
+    set -a
+    source "${PROJECT_DIR}/.env"
+    set +a
 fi
 
 # Check arguments

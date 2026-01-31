@@ -53,6 +53,15 @@
         "url": "http://waha:3000/api/sendText",
         "jsonParameters": true,
         "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.WAHA_API_KEY }}"
+            }
+          ]
+        },
         "bodyParametersJson": "={\n  \"session\": \"default\",\n  \"chatId\": \"{{ $json.chatId }}\",\n  \"text\": \"{{ $json.message }}\"\n}"
       },
       "id": "send-whatsapp",

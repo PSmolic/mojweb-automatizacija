@@ -5,7 +5,13 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "review-aggregator",
-        "options": {}
+        "authentication": "headerAuth",
+        "options": {
+          "headerAuth": {
+            "name": "X-Webhook-Secret",
+            "value": "={{ $env.WEBHOOK_SECRET }}"
+          }
+        }
       },
       "id": "webhook-trigger",
       "name": "Webhook Trigger",
@@ -233,7 +239,7 @@
     },
     {
       "parameters": {
-        "time": 30,
+        "time": 10,
         "unit": "seconds"
       },
       "id": "wait-apify",

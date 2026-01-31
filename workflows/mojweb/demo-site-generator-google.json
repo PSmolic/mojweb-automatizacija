@@ -6,7 +6,13 @@
         "httpMethod": "POST",
         "path": "demo-site-generator-google",
         "responseMode": "responseNode",
-        "options": {}
+        "authentication": "headerAuth",
+        "options": {
+          "headerAuth": {
+            "name": "X-Webhook-Secret",
+            "value": "={{ $env.WEBHOOK_SECRET }}"
+          }
+        }
       },
       "id": "webhook-trigger",
       "name": "Webhook Trigger",

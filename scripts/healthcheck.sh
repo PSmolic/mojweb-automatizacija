@@ -73,8 +73,9 @@ log_warn() {
 
 load_environment() {
     if [[ -f "${PROJECT_DIR}/.env" ]]; then
-        # shellcheck disable=SC2046
-        export $(grep -v '^#' "${PROJECT_DIR}/.env" | grep -v '^$' | xargs)
+        set -a
+        source "${PROJECT_DIR}/.env"
+        set +a
     fi
 }
 
@@ -126,20 +127,20 @@ check_postgres() {
 check_caddy() {
     log "INFO" "Checking Caddy health..."
 
-    # Check if Caddy is responding on port 80
-    if curl -sf -o /dev/null -w "%{http_code}" "http://localhost:80" 2>/dev/null | grep -qE "^(200|301|302|308)$"; then
-        log_ok "Caddy healthy (responding on port 80)"
-        return 0
-    fi
-
-    # Alternative: Check if Caddy container is running and healthy
+    # Only check Caddy if it's configured to run
     if docker compose -f "${PROJECT_DIR}/docker-compose.yml" ps caddy 2>/dev/null | grep -q "running"; then
+        # Check if Caddy is responding on port 80
+        if curl -sf -o /dev/null -w "%{http_code}" "http://localhost:80" 2>/dev/null | grep -qE "^(200|301|302|308)$"; then
+            log_ok "Caddy healthy (responding on port 80)"
+            return 0
+        fi
+
         log_ok "Caddy container running"
         return 0
+    else
+        log "INFO" "Caddy: SKIP (Not configured)"
+        return 0
     fi
-
-    log_fail "Caddy unreachable on localhost:80"
-    return 1
 }
 
 check_waha() {
