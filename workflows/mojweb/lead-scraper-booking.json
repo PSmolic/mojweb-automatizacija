@@ -1,0 +1,1123 @@
+{
+  "name": "Lead Scraper (Booking.com)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-scraper-booking",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 500],
+      "webhookId": "lead-scraper-booking"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "search_location",
+              "value": "Croatia"
+            }
+          ],
+          "number": [
+            {
+              "name": "max_results",
+              "value": 50
+            },
+            {
+              "name": "min_rating",
+              "value": 7
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "default-config",
+      "name": "Default Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookBody = $input.first().json.body || {};\n\nreturn {\n  json: {\n    search_location: webhookBody.search_location || 'Croatia',\n    max_results: webhookBody.max_results || 50,\n    min_rating: webhookBody.min_rating || 7.0,\n    trigger_source: 'webhook'\n  }\n};"
+      },
+      "id": "webhook-config",
+      "name": "Webhook Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 500]
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "output": "input1"
+      },
+      "id": "merge-triggers",
+      "name": "Merge Triggers",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [650, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/voyager~booking-scraper/runs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.APIFY_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"startUrls\": [],\n  \"search\": \"{{ $json.search_location }}\",\n  \"sortBy\": \"popularity\",\n  \"maxItems\": {{ $json.max_results }},\n  \"currency\": \"EUR\",\n  \"language\": \"en-gb\",\n  \"includeReviews\": false,\n  \"extendOutputFunction\": \"async ({ page, request, $ }) => { return { phone: $('a[href^=\\\"tel:\\\"]').attr('href')?.replace('tel:', '') || null }; }\"\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "start-apify-scraper",
+      "name": "Start Apify Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "time": 60,
+        "unit": "seconds"
+      },
+      "id": "wait-for-apify",
+      "name": "Wait for Apify",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/actor-runs/{{ $json.data.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.APIFY_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "check-run-status",
+      "name": "Check Run Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.data.status }}",
+              "operation": "equals",
+              "value2": "SUCCEEDED"
+            }
+          ]
+        }
+      },
+      "id": "is-run-complete",
+      "name": "Is Run Complete?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1450, 400]
+    },
+    {
+      "parameters": {
+        "time": 30,
+        "unit": "seconds"
+      },
+      "id": "wait-more",
+      "name": "Wait More",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1650, 550]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/actor-runs/{{ $('Start Apify Scraper').first().json.data.id }}/dataset/items",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.APIFY_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-apify-results",
+      "name": "Fetch Apify Results",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $input.first().json;\nconst config = $('Merge Triggers').first().json;\nconst minRating = config.min_rating || 7.0;\n\nconst leads = (Array.isArray(results) ? results : [results]).filter(item => {\n  if (!item || !item.name) return false;\n  const hasNoWebsite = !item.website || item.website.includes('booking.com');\n  const hasPhone = item.phone || item.phoneNumber;\n  const hasGoodRating = (item.rating || item.score || 0) >= minRating;\n  return hasNoWebsite && hasPhone && hasGoodRating;\n});\n\nreturn leads.map(item => ({\n  json: {\n    name: item.name,\n    address: item.address || item.location?.address || '',\n    city: item.city || item.location?.city || '',\n    country: item.country || item.location?.country || 'Croatia',\n    phone: item.phone || item.phoneNumber || '',\n    rating: item.rating || item.score || null,\n    reviews_count: item.reviewsCount || item.numberOfReviews || 0,\n    latitude: item.location?.lat || item.latitude || null,\n    longitude: item.location?.lng || item.longitude || null,\n    booking_url: item.url || item.hotelUrl || '',\n    property_type: item.type || item.propertyType || 'accommodation',\n    source: 'booking_scraper'\n  }\n}));"
+      },
+      "id": "filter-and-transform",
+      "name": "Filter and Transform Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nif (items.length === 0) {\n  return [{\n    json: {\n      has_leads: false,\n      total_scraped: 0,\n      message: 'No leads found matching criteria'\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    has_leads: true,\n    total_scraped: items.length,\n    leads: items.map(i => i.json)\n  }\n}];"
+      },
+      "id": "check-leads-count",
+      "name": "Check Leads Count",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2050, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.has_leads }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "has-leads",
+      "name": "Has Leads?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nreturn data.leads.map(lead => ({ json: lead }));"
+      },
+      "id": "split-leads",
+      "name": "Split Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2450, 200]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop-leads",
+      "name": "Loop: Process Leads",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [2650, 200]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/leads",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOJWEB_API_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "booking_url",
+              "value": "={{ $json.booking_url }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "check-existing-lead",
+      "name": "Check Existing Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2850, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.data?.length || $json.length || 0 }}",
+              "operation": "equals",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "is-new-lead",
+      "name": "Is New Lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [3050, 200]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "skipped"
+            },
+            {
+              "name": "reason",
+              "value": "already_exists"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mark-skipped",
+      "name": "Mark Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [3250, 350]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/leads",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOJWEB_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": {{ JSON.stringify($('Loop: Process Leads').first().json.name) }},\n  \"address\": {{ JSON.stringify($('Loop: Process Leads').first().json.address) }},\n  \"city\": {{ JSON.stringify($('Loop: Process Leads').first().json.city) }},\n  \"country\": {{ JSON.stringify($('Loop: Process Leads').first().json.country) }},\n  \"phone\": {{ JSON.stringify($('Loop: Process Leads').first().json.phone) }},\n  \"rating\": {{ $('Loop: Process Leads').first().json.rating || 'null' }},\n  \"reviews_count\": {{ $('Loop: Process Leads').first().json.reviews_count || 0 }},\n  \"latitude\": {{ $('Loop: Process Leads').first().json.latitude || 'null' }},\n  \"longitude\": {{ $('Loop: Process Leads').first().json.longitude || 'null' }},\n  \"booking_url\": {{ JSON.stringify($('Loop: Process Leads').first().json.booking_url) }},\n  \"property_type\": {{ JSON.stringify($('Loop: Process Leads').first().json.property_type) }},\n  \"source\": \"booking_scraper\",\n  \"status\": \"new\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "create-lead",
+      "name": "Create Lead in MojWeb",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3250, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.id }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "lead-created-check",
+      "name": "Lead Created?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [3450, 100]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "lead_id",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "status",
+              "value": "created"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "store-lead-id",
+      "name": "Store Lead ID",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [3650, 0]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "create_failed"
+            },
+            {
+              "name": "error",
+              "value": "={{ JSON.stringify($json) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mark-create-failed",
+      "name": "Mark Create Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [3650, 200]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://maps.googleapis.com/maps/api/place/findplacefromtext/json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "input",
+              "value": "={{ $('Loop: Process Leads').first().json.name + ' ' + $('Loop: Process Leads').first().json.address }}"
+            },
+            {
+              "name": "inputtype",
+              "value": "textquery"
+            },
+            {
+              "name": "fields",
+              "value": "place_id,name,formatted_address"
+            },
+            {
+              "name": "key",
+              "value": "={{ $env.GOOGLE_PLACES_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "search-google-place",
+      "name": "Search Google Place",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3850, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.candidates?.[0]?.place_id }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "has-google-place",
+      "name": "Has Google Place?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [4050, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE_URL || 'http://localhost:5678' }}/webhook/demo-site-generator-google",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"google_place_id\": \"{{ $json.candidates[0].place_id }}\",\n  \"publish\": false\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "trigger-demo-generator",
+      "name": "Trigger Demo Generator",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4250, -100]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "demo_status",
+              "value": "triggered"
+            },
+            {
+              "name": "google_place_id",
+              "value": "={{ $('Has Google Place?').first().json.candidates[0].place_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mark-demo-triggered",
+      "name": "Mark Demo Triggered",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [4450, -100]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "demo_status",
+              "value": "no_google_place"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mark-no-google",
+      "name": "Mark No Google Place",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [4250, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nlet newLeads = 0;\nlet skipped = 0;\nlet failed = 0;\nlet demosTriggered = 0;\n\nfor (const item of items) {\n  const status = item.json.status;\n  if (status === 'created') newLeads++;\n  else if (status === 'skipped') skipped++;\n  else if (status === 'create_failed') failed++;\n  \n  if (item.json.demo_status === 'triggered') demosTriggered++;\n}\n\nreturn [{\n  json: {\n    new_leads: newLeads,\n    skipped_existing: skipped,\n    failed: failed,\n    demos_triggered: demosTriggered,\n    total_processed: items.length\n  }\n}];"
+      },
+      "id": "aggregate-results",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4650, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID }}\",\n  \"text\": \"Booking.com Lead Scraper Completed\\n\\nNew leads: {{ $json.new_leads }}\\nSkipped (existing): {{ $json.skipped_existing }}\\nFailed: {{ $json.failed }}\\nDemos triggered: {{ $json.demos_triggered }}\\nTotal processed: {{ $json.total_processed }}\",\n  \"parse_mode\": \"HTML\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "send-telegram-summary",
+      "name": "Send Telegram Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4850, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $('Aggregate Results').first().json;\n\nreturn {\n  json: {\n    success: true,\n    summary: results\n  }\n};"
+      },
+      "id": "prepare-response",
+      "name": "Prepare Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [5050, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [5250, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "return {\n  json: {\n    success: false,\n    error: 'No leads found matching criteria',\n    summary: {\n      new_leads: 0,\n      skipped_existing: 0,\n      failed: 0,\n      demos_triggered: 0,\n      total_processed: 0\n    }\n  }\n};"
+      },
+      "id": "no-leads-response",
+      "name": "No Leads Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2450, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID }}\",\n  \"text\": \"Booking.com Lead Scraper: No leads found matching criteria\",\n  \"parse_mode\": \"HTML\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "send-no-leads-notification",
+      "name": "Send No Leads Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2650, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('No Leads Response').first().json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "no-leads-webhook-response",
+      "name": "No Leads Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2850, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const error = $input.first().json;\n\nreturn {\n  json: {\n    success: false,\n    error: 'Apify scraper failed or timed out',\n    details: error\n  }\n};"
+      },
+      "id": "apify-error-handler",
+      "name": "Apify Error Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 550]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID }}\",\n  \"text\": \"Booking.com Lead Scraper ERROR\\n\\nApify scraper failed or timed out. Check the workflow execution logs.\",\n  \"parse_mode\": \"HTML\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "send-error-notification",
+      "name": "Send Error Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2050, 550]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Apify Error Handler').first().json) }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "error-webhook-response",
+      "name": "Error Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2250, 550]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Default Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Webhook Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Config": {
+      "main": [
+        [
+          {
+            "node": "Merge Triggers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Config": {
+      "main": [
+        [
+          {
+            "node": "Merge Triggers",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Triggers": {
+      "main": [
+        [
+          {
+            "node": "Start Apify Scraper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Apify Scraper": {
+      "main": [
+        [
+          {
+            "node": "Wait for Apify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Apify": {
+      "main": [
+        [
+          {
+            "node": "Check Run Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Run Status": {
+      "main": [
+        [
+          {
+            "node": "Is Run Complete?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Run Complete?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Apify Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait More",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait More": {
+      "main": [
+        [
+          {
+            "node": "Apify Error Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Apify Results": {
+      "main": [
+        [
+          {
+            "node": "Filter and Transform Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter and Transform Leads": {
+      "main": [
+        [
+          {
+            "node": "Check Leads Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Leads Count": {
+      "main": [
+        [
+          {
+            "node": "Has Leads?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Leads?": {
+      "main": [
+        [
+          {
+            "node": "Split Leads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Leads Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Leads": {
+      "main": [
+        [
+          {
+            "node": "Loop: Process Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop: Process Leads": {
+      "main": [
+        [
+          {
+            "node": "Check Existing Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Existing Lead": {
+      "main": [
+        [
+          {
+            "node": "Is New Lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New Lead?": {
+      "main": [
+        [
+          {
+            "node": "Create Lead in MojWeb",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Skipped": {
+      "main": [
+        [
+          {
+            "node": "Loop: Process Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Lead in MojWeb": {
+      "main": [
+        [
+          {
+            "node": "Lead Created?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Created?": {
+      "main": [
+        [
+          {
+            "node": "Store Lead ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Create Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Lead ID": {
+      "main": [
+        [
+          {
+            "node": "Search Google Place",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Create Failed": {
+      "main": [
+        [
+          {
+            "node": "Loop: Process Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Google Place": {
+      "main": [
+        [
+          {
+            "node": "Has Google Place?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Google Place?": {
+      "main": [
+        [
+          {
+            "node": "Trigger Demo Generator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark No Google Place",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger Demo Generator": {
+      "main": [
+        [
+          {
+            "node": "Mark Demo Triggered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Demo Triggered": {
+      "main": [
+        [
+          {
+            "node": "Loop: Process Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark No Google Place": {
+      "main": [
+        [
+          {
+            "node": "Loop: Process Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Summary": {
+      "main": [
+        [
+          {
+            "node": "Prepare Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Response": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Leads Response": {
+      "main": [
+        [
+          {
+            "node": "Send No Leads Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send No Leads Notification": {
+      "main": [
+        [
+          {
+            "node": "No Leads Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apify Error Handler": {
+      "main": [
+        [
+          {
+            "node": "Send Error Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Error Notification": {
+      "main": [
+        [
+          {
+            "node": "Error Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Scrapes Booking.com for accommodation leads without websites using Apify. Filters for properties with good ratings and phone numbers, creates leads in MojWeb, extracts Google Place IDs, and triggers demo site generation. Runs daily at 06:00 or via webhook POST /lead-scraper-booking."
+  }
+}

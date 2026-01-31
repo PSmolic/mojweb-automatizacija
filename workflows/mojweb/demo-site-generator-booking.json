@@ -1,0 +1,1128 @@
+{
+  "name": "Demo Site Generator (Booking.com)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "demo-site-generator-booking",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "demo-site-generator-booking"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.body.booking_url }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"error\": \"booking_url is required\"\n}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "validation-error-response",
+      "name": "Validation Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 450]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "booking_url",
+              "value": "={{ $json.body.booking_url }}"
+            },
+            {
+              "name": "callback_url",
+              "value": "={{ $json.body.callback_url || '' }}"
+            }
+          ],
+          "boolean": [
+            {
+              "name": "publish",
+              "value": "={{ $json.body.publish === true }}"
+            }
+          ]
+        }
+      },
+      "id": "extract-params",
+      "name": "Extract Params",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/stats/demo-generator-booking",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOJWEB_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "check-rate-limit",
+      "name": "Check Rate Limit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.monthly_count || 0 }}",
+              "operation": "smaller",
+              "value2": 100
+            }
+          ]
+        }
+      },
+      "id": "under-rate-limit",
+      "name": "Under Rate Limit?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"error\": \"Monthly limit reached (100/month)\"\n}",
+        "options": {
+          "responseCode": 429
+        }
+      },
+      "id": "rate-limit-error",
+      "name": "Rate Limit Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 350]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/voyager~booking-scraper/runs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.APIFY_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"startUrls\": [\n    {\n      \"url\": \"{{ $('Extract Params').first().json.booking_url }}\"\n    }\n  ],\n  \"maxItems\": 1\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "start-apify-scraper",
+      "name": "Start Apify Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 100]
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "wait-for-scraper",
+      "name": "Wait for Scraper",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1450, 100]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/acts/voyager~booking-scraper/runs/{{ $('Start Apify Scraper').first().json.data.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.APIFY_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "check-scraper-status",
+      "name": "Check Scraper Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1650, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.data.status }}",
+              "value2": "SUCCEEDED"
+            }
+          ]
+        }
+      },
+      "id": "scraper-succeeded",
+      "name": "Scraper Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1850, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.data.status }}",
+              "operation": "equals",
+              "value2": "RUNNING"
+            }
+          ]
+        }
+      },
+      "id": "still-running",
+      "name": "Still Running?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2050, 250]
+    },
+    {
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      },
+      "id": "wait-more",
+      "name": "Wait More",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2250, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"error\": \"Apify scraper failed\",\n  \"status\": \"{{ $json.data.status }}\"\n}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "scraper-error-response",
+      "name": "Scraper Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2250, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/datasets/{{ $('Start Apify Scraper').first().json.data.defaultDatasetId }}/items",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.APIFY_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-scraper-results",
+      "name": "Fetch Scraper Results",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2050, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ Array.isArray($json) ? $json.length : 0 }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "has-results",
+      "name": "Has Results?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2250, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"error\": \"No data found for the provided Booking.com URL\"\n}",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "id": "no-results-error",
+      "name": "No Results Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2450, 150]
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $input.first().json;\nconst property = Array.isArray(results) ? results[0] : results;\nconst params = $('Extract Params').first().json;\n\nconst bookingUrl = params.booking_url;\nconst urlMatch = bookingUrl.match(/\\/hotel\\/[a-z]+\\/([^.]+)\\./);\nconst bookingId = urlMatch ? urlMatch[1] : bookingUrl.split('/').pop().split('.')[0];\n\nconst ratingBooking = parseFloat(property.rating) || null;\nconst ratingConverted = ratingBooking ? Math.round((ratingBooking / 10) * 5 * 10) / 10 : null;\n\nconst photos = (property.photos || property.images || []).slice(0, 10);\n\nconst addressParts = (property.address || '').split(',').map(s => s.trim());\nconst city = property.city || addressParts[addressParts.length - 2] || '';\nconst country = property.country || addressParts[addressParts.length - 1] || '';\n\nreturn {\n  json: {\n    booking_url: params.booking_url,\n    booking_id: bookingId,\n    publish: params.publish,\n    callback_url: params.callback_url,\n    business: {\n      name: property.name || property.title || '',\n      address: property.address || '',\n      phone: property.phone || property.phoneNumber || '',\n      rating: ratingConverted,\n      reviews_count: parseInt(property.reviewsCount || property.reviews_count || property.numberOfReviews || 0),\n      city: city,\n      country: country,\n      latitude: parseFloat(property.latitude || property.location?.lat) || null,\n      longitude: parseFloat(property.longitude || property.location?.lng) || null,\n      source: 'booking',\n      source_id: bookingId\n    },\n    photo_urls: photos.map(p => typeof p === 'string' ? p : (p.url || p.src || p.large || p.thumbnail || '')).filter(Boolean),\n    description: property.description || property.propertyDescription || '',\n    amenities: property.amenities || property.facilities || []\n  }\n};"
+      },
+      "id": "transform-booking-data",
+      "name": "Transform Booking Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2450, -50]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/businesses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOJWEB_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $json.business.name }}"
+            },
+            {
+              "name": "address",
+              "value": "={{ $json.business.address }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ $json.business.phone }}"
+            },
+            {
+              "name": "rating",
+              "value": "={{ $json.business.rating }}"
+            },
+            {
+              "name": "reviews_count",
+              "value": "={{ $json.business.reviews_count }}"
+            },
+            {
+              "name": "city",
+              "value": "={{ $json.business.city }}"
+            },
+            {
+              "name": "country",
+              "value": "={{ $json.business.country }}"
+            },
+            {
+              "name": "latitude",
+              "value": "={{ $json.business.latitude }}"
+            },
+            {
+              "name": "longitude",
+              "value": "={{ $json.business.longitude }}"
+            },
+            {
+              "name": "source",
+              "value": "={{ $json.business.source }}"
+            },
+            {
+              "name": "source_id",
+              "value": "={{ $json.business.source_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "create-business",
+      "name": "Create Business",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2650, -50]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.id }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "check-business-created",
+      "name": "Check Business Created",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2850, -50]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"error\": \"Failed to create business in MojWeb\",\n  \"details\": {{ JSON.stringify($json) }}\n}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "create-business-error",
+      "name": "Create Business Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3050, 100]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "business_id",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "website_id",
+              "value": "={{ $json.website_id }}"
+            }
+          ]
+        },
+        "options": {
+          "dotNotation": false
+        }
+      },
+      "id": "store-business-ids",
+      "name": "Store Business IDs",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [3050, -150]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/stats/demo-generator-booking",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOJWEB_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"increment\": 1\n}",
+        "options": {}
+      },
+      "id": "increment-rate-limit",
+      "name": "Increment Rate Limit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3250, -150]
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "seconds"
+      },
+      "id": "wait-before-photos",
+      "name": "Wait Before Photos",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [3450, -150]
+    },
+    {
+      "parameters": {
+        "jsCode": "const transformData = $('Transform Booking Data').first().json;\nconst storeIds = $('Store Business IDs').first().json;\n\nconst photoUrls = transformData.photo_urls || [];\n\nif (photoUrls.length === 0) {\n  return [{ json: { skip_photos: true, ...storeIds, ...transformData } }];\n}\n\nreturn photoUrls.map((url, index) => ({\n  json: {\n    photo_url: url,\n    photo_index: index,\n    business_id: storeIds.business_id,\n    website_id: storeIds.website_id,\n    publish: transformData.publish,\n    callback_url: transformData.callback_url\n  }\n}));"
+      },
+      "id": "prepare-photo-loop",
+      "name": "Prepare Photo Loop",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3650, -150]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.skip_photos }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "has-photos",
+      "name": "Has Photos?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [3850, -150]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.photo_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "fetch-photo",
+      "name": "Fetch Photo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4050, -250]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/businesses/{{ $('Prepare Photo Loop').item.json.business_id }}/media",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOJWEB_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "file",
+              "parameterType": "formBinaryData",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "type",
+              "value": "gallery"
+            },
+            {
+              "name": "position",
+              "value": "={{ $('Prepare Photo Loop').item.json.photo_index }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "upload-photo",
+      "name": "Upload Photo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4250, -250]
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "seconds"
+      },
+      "id": "wait-between-photos",
+      "name": "Wait Between Photos",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [4450, -250]
+    },
+    {
+      "parameters": {
+        "jsCode": "const transformData = $('Transform Booking Data').first().json;\nconst storeIds = $('Store Business IDs').first().json;\n\nreturn {\n  json: {\n    business_id: storeIds.business_id,\n    website_id: storeIds.website_id,\n    publish: transformData.publish,\n    callback_url: transformData.callback_url,\n    business: transformData.business,\n    description: transformData.description,\n    amenities: transformData.amenities\n  }\n};"
+      },
+      "id": "merge-after-photos",
+      "name": "Merge After Photos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4050, 0]
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "seconds"
+      },
+      "id": "wait-before-update",
+      "name": "Wait Before Update",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [4250, 0]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/websites/{{ $json.website_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOJWEB_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": {\n    \"hero_title\": \"{{ $json.business.name }}\",\n    \"hero_subtitle\": \"{{ $json.business.city }}, {{ $json.business.country }}\",\n    \"contact_phone\": \"{{ $json.business.phone }}\",\n    \"contact_address\": \"{{ $json.business.address }}\",\n    \"description\": {{ JSON.stringify($json.description) }},\n    \"amenities\": {{ JSON.stringify($json.amenities) }},\n    \"rating\": {{ $json.business.rating || 'null' }},\n    \"reviews_count\": {{ $json.business.reviews_count || 0 }}\n  }\n}",
+        "options": {}
+      },
+      "id": "update-website",
+      "name": "Update Website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4450, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $('Merge After Photos').first().json.publish }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "should-publish",
+      "name": "Should Publish?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [4650, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/websites/{{ $('Merge After Photos').first().json.website_id }}/publish",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOJWEB_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "publish-website",
+      "name": "Publish Website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4850, -100]
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "seconds"
+      },
+      "id": "wait-after-publish",
+      "name": "Wait After Publish",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [5050, -100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const mergeData = $('Merge After Photos').first().json;\nconst publishResult = $input.first().json;\n\nreturn {\n  json: {\n    success: true,\n    business_id: mergeData.business_id,\n    website_id: mergeData.website_id,\n    demo_url: publishResult.url || `https://demo.mojweb.site/${mergeData.website_id}`,\n    published: true\n  }\n};"
+      },
+      "id": "prepare-published-response",
+      "name": "Prepare Published Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [5250, -100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const mergeData = $('Merge After Photos').first().json;\n\nreturn {\n  json: {\n    success: true,\n    business_id: mergeData.business_id,\n    website_id: mergeData.website_id,\n    demo_url: `https://demo.mojweb.site/${mergeData.website_id}`,\n    published: false\n  }\n};"
+      },
+      "id": "prepare-unpublished-response",
+      "name": "Prepare Unpublished Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4850, 100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [5450, 0]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Extract Params",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validation Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Params": {
+      "main": [
+        [
+          {
+            "node": "Check Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Rate Limit": {
+      "main": [
+        [
+          {
+            "node": "Under Rate Limit?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Under Rate Limit?": {
+      "main": [
+        [
+          {
+            "node": "Start Apify Scraper",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rate Limit Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Apify Scraper": {
+      "main": [
+        [
+          {
+            "node": "Wait for Scraper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Scraper": {
+      "main": [
+        [
+          {
+            "node": "Check Scraper Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Scraper Status": {
+      "main": [
+        [
+          {
+            "node": "Scraper Succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scraper Succeeded?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Scraper Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Still Running?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Still Running?": {
+      "main": [
+        [
+          {
+            "node": "Wait More",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Scraper Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait More": {
+      "main": [
+        [
+          {
+            "node": "Check Scraper Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Scraper Results": {
+      "main": [
+        [
+          {
+            "node": "Has Results?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Results?": {
+      "main": [
+        [
+          {
+            "node": "Transform Booking Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Results Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Booking Data": {
+      "main": [
+        [
+          {
+            "node": "Create Business",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Business": {
+      "main": [
+        [
+          {
+            "node": "Check Business Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Business Created": {
+      "main": [
+        [
+          {
+            "node": "Store Business IDs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Business Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Business IDs": {
+      "main": [
+        [
+          {
+            "node": "Increment Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Increment Rate Limit": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Photos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Photos": {
+      "main": [
+        [
+          {
+            "node": "Prepare Photo Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Photo Loop": {
+      "main": [
+        [
+          {
+            "node": "Has Photos?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Photos?": {
+      "main": [
+        [
+          {
+            "node": "Merge After Photos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Photo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Photo": {
+      "main": [
+        [
+          {
+            "node": "Upload Photo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Photo": {
+      "main": [
+        [
+          {
+            "node": "Wait Between Photos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Between Photos": {
+      "main": [
+        [
+          {
+            "node": "Merge After Photos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge After Photos": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Update": {
+      "main": [
+        [
+          {
+            "node": "Update Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Website": {
+      "main": [
+        [
+          {
+            "node": "Should Publish?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Publish?": {
+      "main": [
+        [
+          {
+            "node": "Publish Website",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Unpublished Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Website": {
+      "main": [
+        [
+          {
+            "node": "Wait After Publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait After Publish": {
+      "main": [
+        [
+          {
+            "node": "Prepare Published Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Published Response": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Unpublished Response": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Creates demo websites from Booking.com data via webhook. Uses Apify to scrape property details, transforms data to MojWeb schema, creates business, uploads photos, and optionally publishes the site. Includes 100/month rate limiting."
+  }
+}

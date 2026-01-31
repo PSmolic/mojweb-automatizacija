@@ -1,0 +1,291 @@
+{
+  "name": "MojWeb Uptime Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/websites?status=published",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-websites",
+      "name": "Fetch Published Websites",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "mojweb-api",
+          "name": "MojWeb API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "options": {}
+      },
+      "id": "split-items",
+      "name": "Split Into Items",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "timeout": 10000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          }
+        }
+      },
+      "id": "check-site",
+      "name": "Check Site Health",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 300],
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const statusCode = item.json.statusCode || 0;\n  const responseTime = item.json.responseTime || 0;\n  const url = item.json.url || $('Split Into Items').item.json.url;\n  const name = $('Split Into Items').item.json.name || url;\n  const error = item.json.error || null;\n  \n  const isHealthy = \n    !error &&\n    statusCode >= 200 && \n    statusCode < 400 && \n    responseTime < 5000;\n  \n  let reason = 'ok';\n  if (!isHealthy) {\n    if (error) {\n      reason = `Error: ${error.message || 'Connection failed'}`;\n    } else if (statusCode >= 400 || statusCode === 0) {\n      reason = `HTTP ${statusCode || 'No response'}`;\n    } else if (responseTime >= 5000) {\n      reason = `Slow (${responseTime}ms)`;\n    } else {\n      reason = 'Unknown';\n    }\n  }\n  \n  results.push({\n    json: {\n      url: url,\n      name: name,\n      statusCode: statusCode,\n      responseTime: responseTime,\n      isHealthy: isHealthy,\n      reason: reason,\n      checkedAt: new Date().toISOString()\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "evaluate-health",
+      "name": "Evaluate Health",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {
+          "outputFormat": "singleField",
+          "fieldName": "results"
+        }
+      },
+      "id": "aggregate-results",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $input.first().json.results || [];\nconst failures = results.filter(r => !r.isHealthy);\n\nreturn [{\n  json: {\n    allResults: results,\n    failures: failures,\n    totalSites: results.length,\n    failedCount: failures.length,\n    hasFailures: failures.length > 0,\n    checkedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "filter-failures",
+      "name": "Filter Failures",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-failures",
+              "leftValue": "={{ $json.hasFailures }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-if-failures",
+      "name": "Any Failures?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst failures = data.failures || [];\nconst checkedAt = data.checkedAt;\n\nlet message = `<b>MojWeb Uptime Alert</b>\\n\\n`;\nmessage += `${failures.length} site(s) are experiencing issues:\\n\\n`;\n\nfor (const site of failures) {\n  message += `<b>${site.name}</b>\\n`;\n  message += `URL: ${site.url}\\n`;\n  message += `Status: ${site.reason}\\n\\n`;\n}\n\nmessage += `Checked at: ${checkedAt}`;\n\nreturn [{\n  json: {\n    message: message,\n    failedCount: failures.length,\n    checkedAt: checkedAt\n  }\n}];"
+      },
+      "id": "format-alert",
+      "name": "Format Alert Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID }}\",\n  \"text\": {{ JSON.stringify($json.message) }},\n  \"parse_mode\": \"HTML\"\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "send-telegram",
+      "name": "Send Telegram Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2050, 200]
+    },
+    {
+      "parameters": {},
+      "id": "all-healthy",
+      "name": "All Sites Healthy",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1850, 400]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Published Websites",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Published Websites": {
+      "main": [
+        [
+          {
+            "node": "Split Into Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Into Items": {
+      "main": [
+        [
+          {
+            "node": "Check Site Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Site Health": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Health": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "Filter Failures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Failures": {
+      "main": [
+        [
+          {
+            "node": "Any Failures?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Failures?": {
+      "main": [
+        [
+          {
+            "node": "Format Alert Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "All Sites Healthy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Alert Message": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "errorWorkflow": "",
+    "timezone": "Europe/Zagreb"
+  },
+  "meta": {
+    "description": "Monitor published MojWeb sites every 5 minutes and alert on failures via Telegram. Checks HTTP status codes and response times."
+  }
+}

@@ -1,0 +1,954 @@
+{
+  "name": "Demo Site Generator (Google Places)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "demo-site-generator-google",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "demo-site-generator-google"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.body.google_place_id }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"error\": \"google_place_id is required\"\n}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "validation-error-response",
+      "name": "Validation Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 450]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/stats/demo-generator-google",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOJWEB_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "check-monthly-limit",
+      "name": "Check Monthly Limit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.count }}",
+              "operation": "largerEqual",
+              "value2": 100
+            }
+          ]
+        }
+      },
+      "id": "limit-exceeded",
+      "name": "Limit Exceeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"error\": \"Monthly limit reached (100/month)\",\n  \"current_count\": {{ $json.count }},\n  \"resets_at\": \"{{ new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString().split('T')[0] }}\"\n}",
+        "options": {
+          "responseCode": 429
+        }
+      },
+      "id": "rate-limit-error-response",
+      "name": "Rate Limit Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1050, 350]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "google_place_id",
+              "value": "={{ $('Webhook Trigger').first().json.body.google_place_id }}"
+            },
+            {
+              "name": "callback_url",
+              "value": "={{ $('Webhook Trigger').first().json.body.callback_url || '' }}"
+            }
+          ],
+          "boolean": [
+            {
+              "name": "publish",
+              "value": "={{ $('Webhook Trigger').first().json.body.publish === true }}"
+            }
+          ]
+        }
+      },
+      "id": "extract-params",
+      "name": "Extract Params",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [1050, 100]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://maps.googleapis.com/maps/api/place/details/json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "place_id",
+              "value": "={{ $json.google_place_id }}"
+            },
+            {
+              "name": "key",
+              "value": "={{ $env.GOOGLE_PLACES_API_KEY }}"
+            },
+            {
+              "name": "fields",
+              "value": "name,formatted_address,formatted_phone_number,website,photos,reviews,rating,user_ratings_total,geometry,opening_hours,types,address_components"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-place-details",
+      "name": "Fetch Place Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "value2": "OK"
+            }
+          ]
+        }
+      },
+      "id": "check-google-response",
+      "name": "Check Google Response",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1450, 100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"error\": \"Google Places API error: {{ $json.status }}\",\n  \"error_message\": \"{{ $json.error_message || 'Unknown error' }}\"\n}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "google-error-response",
+      "name": "Google Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1650, 250]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json.result;\nconst params = $('Extract Params').first().json;\n\nconst addressComponents = result.address_components || [];\nlet city = '';\nlet country = '';\nlet postalCode = '';\n\nfor (const component of addressComponents) {\n  if (component.types.includes('locality')) {\n    city = component.long_name;\n  }\n  if (component.types.includes('country')) {\n    country = component.long_name;\n  }\n  if (component.types.includes('postal_code')) {\n    postalCode = component.long_name;\n  }\n}\n\nconst photoReferences = (result.photos || []).slice(0, 10).map(p => p.photo_reference);\n\nreturn {\n  json: {\n    google_place_id: params.google_place_id,\n    publish: params.publish,\n    callback_url: params.callback_url,\n    business: {\n      name: result.name || '',\n      address: result.formatted_address || '',\n      phone: result.formatted_phone_number || '',\n      website: result.website || '',\n      rating: result.rating || null,\n      reviews_count: result.user_ratings_total || 0,\n      city: city,\n      country: country,\n      postal_code: postalCode,\n      latitude: result.geometry?.location?.lat || null,\n      longitude: result.geometry?.location?.lng || null,\n      types: result.types || [],\n      opening_hours: result.opening_hours?.weekday_text || [],\n      source: 'google_places',\n      source_id: params.google_place_id\n    },\n    photo_references: photoReferences,\n    reviews: (result.reviews || []).slice(0, 5).map(r => ({\n      author: r.author_name,\n      rating: r.rating,\n      text: r.text,\n      time: r.time\n    }))\n  }\n};"
+      },
+      "id": "transform-data",
+      "name": "Transform Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1650, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/businesses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOJWEB_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $json.business.name }}"
+            },
+            {
+              "name": "address",
+              "value": "={{ $json.business.address }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ $json.business.phone }}"
+            },
+            {
+              "name": "website",
+              "value": "={{ $json.business.website }}"
+            },
+            {
+              "name": "rating",
+              "value": "={{ $json.business.rating }}"
+            },
+            {
+              "name": "reviews_count",
+              "value": "={{ $json.business.reviews_count }}"
+            },
+            {
+              "name": "city",
+              "value": "={{ $json.business.city }}"
+            },
+            {
+              "name": "country",
+              "value": "={{ $json.business.country }}"
+            },
+            {
+              "name": "latitude",
+              "value": "={{ $json.business.latitude }}"
+            },
+            {
+              "name": "longitude",
+              "value": "={{ $json.business.longitude }}"
+            },
+            {
+              "name": "source",
+              "value": "={{ $json.business.source }}"
+            },
+            {
+              "name": "source_id",
+              "value": "={{ $json.business.source_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "create-business",
+      "name": "Create Business",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1850, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.id }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "check-business-created",
+      "name": "Check Business Created",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2050, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"error\": \"Failed to create business in MojWeb\",\n  \"details\": {{ JSON.stringify($json) }}\n}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "create-business-error",
+      "name": "Create Business Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2250, 150]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "business_id",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "website_id",
+              "value": "={{ $json.website_id }}"
+            }
+          ]
+        },
+        "options": {
+          "dotNotation": false
+        }
+      },
+      "id": "store-business-ids",
+      "name": "Store Business IDs",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [2250, -100]
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "seconds"
+      },
+      "id": "wait-before-photos",
+      "name": "Wait Before Photos",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2450, -100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const transformData = $('Transform Data').first().json;\nconst storeIds = $('Store Business IDs').first().json;\n\nconst photoRefs = transformData.photo_references || [];\n\nif (photoRefs.length === 0) {\n  return [{ json: { skip_photos: true, ...storeIds, ...transformData } }];\n}\n\nreturn photoRefs.map((ref, index) => ({\n  json: {\n    photo_reference: ref,\n    photo_index: index,\n    business_id: storeIds.business_id,\n    website_id: storeIds.website_id,\n    publish: transformData.publish,\n    callback_url: transformData.callback_url\n  }\n}));"
+      },
+      "id": "prepare-photo-loop",
+      "name": "Prepare Photo Loop",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2650, -100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.skip_photos }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "has-photos",
+      "name": "Has Photos?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2850, -100]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://maps.googleapis.com/maps/api/place/photo",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "photo_reference",
+              "value": "={{ $json.photo_reference }}"
+            },
+            {
+              "name": "key",
+              "value": "={{ $env.GOOGLE_PLACES_API_KEY }}"
+            },
+            {
+              "name": "maxwidth",
+              "value": "1200"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "fetch-photo",
+      "name": "Fetch Photo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3050, -200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/businesses/{{ $json.business_id }}/media",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOJWEB_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "file",
+              "parameterType": "formBinaryData",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "type",
+              "value": "gallery"
+            },
+            {
+              "name": "position",
+              "value": "={{ $('Prepare Photo Loop').item.json.photo_index }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "upload-photo",
+      "name": "Upload Photo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3250, -200]
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "seconds"
+      },
+      "id": "wait-between-photos",
+      "name": "Wait Between Photos",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [3450, -200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const transformData = $('Transform Data').first().json;\nconst storeIds = $('Store Business IDs').first().json;\n\nreturn {\n  json: {\n    business_id: storeIds.business_id,\n    website_id: storeIds.website_id,\n    publish: transformData.publish,\n    callback_url: transformData.callback_url,\n    business: transformData.business,\n    reviews: transformData.reviews\n  }\n};"
+      },
+      "id": "merge-after-photos",
+      "name": "Merge After Photos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3050, 50]
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "seconds"
+      },
+      "id": "wait-before-update",
+      "name": "Wait Before Update",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [3250, 50]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/websites/{{ $json.website_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOJWEB_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": {\n    \"hero_title\": \"{{ $json.business.name }}\",\n    \"hero_subtitle\": \"{{ $json.business.city }}, {{ $json.business.country }}\",\n    \"contact_phone\": \"{{ $json.business.phone }}\",\n    \"contact_address\": \"{{ $json.business.address }}\",\n    \"opening_hours\": {{ JSON.stringify($json.business.opening_hours) }},\n    \"rating\": {{ $json.business.rating || 'null' }},\n    \"reviews_count\": {{ $json.business.reviews_count || 0 }}\n  }\n}",
+        "options": {}
+      },
+      "id": "update-website",
+      "name": "Update Website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3450, 50]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.publish }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "should-publish",
+      "name": "Should Publish?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [3650, 50]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/websites/{{ $('Merge After Photos').first().json.website_id }}/publish",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOJWEB_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "publish-website",
+      "name": "Publish Website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3850, -50]
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "seconds"
+      },
+      "id": "wait-after-publish",
+      "name": "Wait After Publish",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [4050, -50]
+    },
+    {
+      "parameters": {
+        "jsCode": "const mergeData = $('Merge After Photos').first().json;\nconst publishResult = $input.first().json;\n\nreturn {\n  json: {\n    success: true,\n    business_id: mergeData.business_id,\n    website_id: mergeData.website_id,\n    demo_url: publishResult.url || `https://demo.mojweb.site/${mergeData.website_id}`,\n    published: true\n  }\n};"
+      },
+      "id": "prepare-published-response",
+      "name": "Prepare Published Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4250, -50]
+    },
+    {
+      "parameters": {
+        "jsCode": "const mergeData = $('Merge After Photos').first().json;\n\nreturn {\n  json: {\n    success: true,\n    business_id: mergeData.business_id,\n    website_id: mergeData.website_id,\n    demo_url: `https://demo.mojweb.site/${mergeData.website_id}`,\n    published: false\n  }\n};"
+      },
+      "id": "prepare-unpublished-response",
+      "name": "Prepare Unpublished Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3850, 150]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.MOJWEB_API_URL }}/api/v1/stats/demo-generator-google",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOJWEB_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"increment\": 1 }",
+        "options": {}
+      },
+      "id": "increment-monthly-count",
+      "name": "Increment Monthly Count",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4450, 50]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [4650, 50]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Check Monthly Limit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validation Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Monthly Limit": {
+      "main": [
+        [
+          {
+            "node": "Limit Exceeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit Exceeded?": {
+      "main": [
+        [
+          {
+            "node": "Rate Limit Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Params": {
+      "main": [
+        [
+          {
+            "node": "Fetch Place Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Place Details": {
+      "main": [
+        [
+          {
+            "node": "Check Google Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Google Response": {
+      "main": [
+        [
+          {
+            "node": "Transform Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Data": {
+      "main": [
+        [
+          {
+            "node": "Create Business",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Business": {
+      "main": [
+        [
+          {
+            "node": "Check Business Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Business Created": {
+      "main": [
+        [
+          {
+            "node": "Store Business IDs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Business Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Business IDs": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Photos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Photos": {
+      "main": [
+        [
+          {
+            "node": "Prepare Photo Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Photo Loop": {
+      "main": [
+        [
+          {
+            "node": "Has Photos?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Photos?": {
+      "main": [
+        [
+          {
+            "node": "Merge After Photos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Photo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Photo": {
+      "main": [
+        [
+          {
+            "node": "Upload Photo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Photo": {
+      "main": [
+        [
+          {
+            "node": "Wait Between Photos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Between Photos": {
+      "main": [
+        [
+          {
+            "node": "Merge After Photos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge After Photos": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Update": {
+      "main": [
+        [
+          {
+            "node": "Update Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Website": {
+      "main": [
+        [
+          {
+            "node": "Should Publish?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Publish?": {
+      "main": [
+        [
+          {
+            "node": "Publish Website",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Unpublished Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Website": {
+      "main": [
+        [
+          {
+            "node": "Wait After Publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait After Publish": {
+      "main": [
+        [
+          {
+            "node": "Prepare Published Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Published Response": {
+      "main": [
+        [
+          {
+            "node": "Increment Monthly Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Unpublished Response": {
+      "main": [
+        [
+          {
+            "node": "Increment Monthly Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Increment Monthly Count": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Creates demo websites from Google Places data via webhook. Includes monthly rate limiting (100/month). Fetches place details, transforms data to MojWeb schema, creates business, uploads photos, and optionally publishes the site."
+  }
+}
