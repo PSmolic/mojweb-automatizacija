@@ -3,6 +3,7 @@
 # Deployment Script for Solution Press Automation Platform
 # =============================================================================
 # Deploys n8n automation platform to a fresh Hetzner VPS
+# Uses nginx as reverse proxy with Let's Encrypt SSL
 # Tested on: Ubuntu 22.04/24.04, Debian 11/12
 # =============================================================================
 
@@ -226,25 +227,85 @@ check_dns() {
 check_ports() {
     print_info "Checking required ports..."
 
-    local ports_in_use=()
+    local nginx_running=false
 
-    for port in 80 443; do
-        if ss -tuln | grep -q ":${port} "; then
-            ports_in_use+=("${port}")
-        fi
-    done
-
-    if [[ ${#ports_in_use[@]} -gt 0 ]]; then
-        print_warning "Ports already in use: ${ports_in_use[*]}"
-        print_warning "These ports are required for Caddy (HTTPS proxy)"
-        echo ""
-        read -p "Stop existing services and continue? (y/N): " -r
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
-        fi
-    else
-        print_success "Ports 80 and 443 are available"
+    if systemctl is-active --quiet nginx 2>/dev/null; then
+        nginx_running=true
     fi
+
+    if [[ "${nginx_running}" == true ]]; then
+        print_success "nginx is running on ports 80/443"
+    else
+        for port in 80 443; do
+            if ss -tuln | grep -q ":${port} "; then
+                print_warning "Port ${port} is in use but nginx is not running"
+                print_info "nginx should be installed and running on ports 80/443"
+            fi
+        done
+        print_info "nginx will be configured after services start"
+    fi
+}
+
+# =============================================================================
+# Nginx Setup
+# =============================================================================
+
+setup_nginx() {
+    print_info "Configuring nginx..."
+
+    local nginx_conf="/etc/nginx/sites-available/${DOMAIN}"
+    local nginx_enabled="/etc/nginx/sites-enabled/${DOMAIN}"
+
+    # Copy nginx config
+    cp "${INSTALL_DIR}/config/nginx-n8n.conf" "${nginx_conf}"
+
+    # Replace domain placeholder if needed
+    sed -i "s/automation.solutionpress.hr/${DOMAIN}/g" "${nginx_conf}"
+
+    # Enable site
+    if [[ ! -L "${nginx_enabled}" ]]; then
+        ln -s "${nginx_conf}" "${nginx_enabled}"
+    fi
+
+    print_success "Nginx config installed"
+
+    # Test nginx config
+    if nginx -t 2>/dev/null; then
+        print_success "Nginx configuration valid"
+    else
+        print_error "Nginx configuration invalid"
+        exit 1
+    fi
+}
+
+setup_ssl() {
+    print_info "Setting up SSL certificate..."
+
+    # Check if certificate already exists
+    if [[ -d "/etc/letsencrypt/live/${DOMAIN}" ]]; then
+        print_success "SSL certificate already exists"
+        return 0
+    fi
+
+    # Install certbot if not present
+    if ! command -v certbot &> /dev/null; then
+        apt-get install -y -qq certbot python3-certbot-nginx
+    fi
+
+    # Get certificate
+    certbot --nginx -d "${DOMAIN}" --non-interactive --agree-tos -m "${EMAIL}" --redirect
+
+    if [[ $? -eq 0 ]]; then
+        print_success "SSL certificate obtained"
+    else
+        print_warning "SSL certificate failed - you can retry manually with: certbot --nginx -d ${DOMAIN}"
+    fi
+}
+
+reload_nginx() {
+    print_info "Reloading nginx..."
+    systemctl reload nginx
+    print_success "Nginx reloaded"
 }
 
 # =============================================================================
@@ -540,13 +601,13 @@ main() {
     mkdir -p "$(dirname "${LOG_FILE}")"
     log "Starting deployment for domain: ${DOMAIN}"
 
-    print_step "1/9" "Pre-flight checks"
+    print_step "1/12" "Pre-flight checks"
     check_root
     check_os
     check_dns
     check_ports
 
-    print_step "2/9" "Installing Docker"
+    print_step "2/12" "Installing Docker"
     if [[ "${SKIP_DOCKER}" == true ]]; then
         print_info "Skipping Docker installation (--skip-docker)"
         if ! command -v docker &> /dev/null; then
@@ -558,25 +619,34 @@ main() {
         install_docker
     fi
 
-    print_step "3/9" "Setting up application"
+    print_step "3/12" "Setting up application"
     setup_application
 
-    print_step "4/9" "Configuring environment"
+    print_step "4/12" "Configuring environment"
     setup_environment
 
-    print_step "5/9" "Configuring firewall"
+    print_step "5/12" "Configuring firewall"
     configure_firewall
 
-    print_step "6/9" "Starting services"
+    print_step "6/12" "Starting services"
     start_services
 
-    print_step "7/9" "Waiting for services"
+    print_step "7/12" "Configuring nginx"
+    setup_nginx
+
+    print_step "8/12" "Setting up SSL"
+    setup_ssl
+
+    print_step "9/12" "Reloading nginx"
+    reload_nginx
+
+    print_step "10/12" "Waiting for services"
     wait_for_healthy
 
-    print_step "8/9" "Running health check"
+    print_step "11/12" "Running health check"
     run_healthcheck
 
-    print_step "9/9" "Setting up cron jobs"
+    print_step "12/12" "Setting up cron jobs"
     setup_cron_jobs
 
     print_summary
