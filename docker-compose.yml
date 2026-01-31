@@ -1,0 +1,142 @@
+version: "3.8"
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      # Host configuration
+      - N8N_HOST=${N8N_HOST}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://${N8N_HOST}/
+      - GENERIC_TIMEZONE=Europe/Zagreb
+      - TZ=Europe/Zagreb
+      
+      # Database
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      
+      # Security
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+      
+      # Execution settings
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - EXECUTIONS_DATA_SAVE_ON_PROGRESS=false
+      - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true
+      
+      # Performance
+      - N8N_PAYLOAD_SIZE_MAX=64
+      - NODE_FUNCTION_ALLOW_EXTERNAL=axios,cheerio,moment
+      
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/home/node/workflows:ro
+      - ./backups:/home/node/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - automation
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=n8n
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - automation
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d n8n"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - N8N_HOST=${N8N_HOST}
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - n8n
+    networks:
+      - automation
+
+  # =========================================================================
+  # WAHA - WhatsApp HTTP API (Self-hosted)
+  # =========================================================================
+  # Dashboard: http://localhost:3000/dashboard
+  # API Docs:  http://localhost:3000/
+  # =========================================================================
+  waha:
+    image: devlikeapro/waha
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Dashboard credentials
+      - WAHA_DASHBOARD_ENABLED=true
+      - WAHA_DASHBOARD_USERNAME=${WAHA_USER:-admin}
+      - WAHA_DASHBOARD_PASSWORD=${WAHA_PASSWORD}
+      
+      # Webhook to n8n (for incoming messages)
+      - WHATSAPP_HOOK_URL=http://n8n:5678/webhook/whatsapp
+      - WHATSAPP_HOOK_EVENTS=message,session.status
+      
+      # Session settings
+      - WHATSAPP_RESTART_ALL_SESSIONS=true
+      - WHATSAPP_START_SESSION=default
+      
+      # API security (optional - enable in production)
+      # - WHATSAPP_API_KEY=${WAHA_API_KEY}
+      
+    volumes:
+      - waha_sessions:/app/.sessions
+    networks:
+      - automation
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  n8n_data:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+  waha_sessions:
+
+networks:
+  automation:
+    driver: bridge

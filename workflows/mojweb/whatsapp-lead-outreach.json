@@ -1,0 +1,162 @@
+{
+  "name": "WhatsApp Lead Outreach",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "When Called By Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.phone }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "has-phone",
+      "name": "Has Phone Number?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "chatId",
+              "value": "={{ $json.phone.replace(/[^0-9]/g, '') }}@c.us"
+            },
+            {
+              "name": "message",
+              "value": "Pozdrav! 👋\n\nVidio sam {{ $json.property_name }} na Booking.com - odlične recenzije ({{ $json.rating }}/10)!\n\nNapravio sam besplatni demo web stranice za vas:\n👉 {{ $json.demo_url }}\n\nJavite se ako vas zanima - aktivacija traje samo 24h."
+            }
+          ]
+        }
+      },
+      "id": "prepare-message",
+      "name": "Prepare Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "http://waha:3000/api/sendText",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "={\n  \"session\": \"default\",\n  \"chatId\": \"{{ $json.chatId }}\",\n  \"text\": \"{{ $json.message }}\"\n}"
+      },
+      "id": "send-whatsapp",
+      "name": "Send WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "whatsapp_sent"
+            },
+            {
+              "name": "whatsapp_sent_at",
+              "value": "={{ new Date().toISOString() }}"
+            }
+          ]
+        }
+      },
+      "id": "update-status",
+      "name": "Update Status",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "no_phone"
+            }
+          ]
+        }
+      },
+      "id": "no-phone",
+      "name": "No Phone - Skip",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [650, 400]
+    }
+  ],
+  "connections": {
+    "When Called By Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Has Phone Number?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Phone Number?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Phone - Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Message": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Update Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Send WhatsApp message to lead with demo URL. Called from Lead Scraper workflow."
+  }
+}
