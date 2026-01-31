@@ -4,7 +4,8 @@ services:
   n8n:
     image: n8nio/n8n:1.70.1
     restart: unless-stopped
-    # Port removed - n8n only accessible via Caddy reverse proxy
+    ports:
+      - "127.0.0.1:5678:5678"
     environment:
       # Host configuration
       - N8N_HOST=${N8N_HOST}
@@ -97,34 +98,34 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      - N8N_HOST=${N8N_HOST}
-    volumes:
-      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - n8n
-    networks:
-      - automation
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: '0.25'
-        reservations:
-          memory: 64M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+  # caddy:
+  #   image: caddy:2-alpine
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   environment:
+  #     - N8N_HOST=${N8N_HOST}
+  #   volumes:
+  #     - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy_data:/data
+  #     - caddy_config:/config
+  #   depends_on:
+  #     - n8n
+  #   networks:
+  #     - automation
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 128M
+  #         cpus: '0.25'
+  #       reservations:
+  #         memory: 64M
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "10m"
+  #       max-file: "3"
 
   # =========================================================================
   # WAHA - WhatsApp HTTP API (Self-hosted)
@@ -180,8 +181,8 @@ services:
 volumes:
   n8n_data:
   postgres_data:
-  caddy_data:
-  caddy_config:
+  # caddy_data:
+  # caddy_config:
   waha_sessions:
 
 networks:
