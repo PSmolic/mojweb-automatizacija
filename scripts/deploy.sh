@@ -14,7 +14,7 @@ set -euo pipefail
 
 SCRIPT_NAME=$(basename "$0")
 INSTALL_DIR="/srv/mojweb-automation"
-REPO_URL="https://github.com/solution-press/mojweb-automation.git"
+REPO_URL="https://github.com/PSmolic/mojweb-automatizacija.git"
 LOG_FILE="/var/log/mojweb-deploy.log"
 
 # Parameters
