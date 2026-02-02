@@ -1,0 +1,465 @@
+{
+  "name": "NaviApps Website Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9,18 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "naviapps-monitor",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 500],
+      "webhookId": "naviapps-monitor"
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "output": "empty"
+      },
+      "id": "merge-triggers",
+      "name": "Merge Triggers",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [450, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const urls = [\n  {\n    url: 'https://naviapps.hr/',\n    name: 'Main Site',\n    expectedContent: 'NaviApps',\n    checkType: 'main'\n  },\n  {\n    url: 'https://naviapps.hr/demo/dalmacija',\n    name: 'Demo Dalmacija',\n    expectedContent: 'NaviApps',\n    checkType: 'landing'\n  }\n];\n\nreturn urls.map(u => ({ json: u }));"
+      },
+      "id": "define-urls",
+      "name": "Define URLs to Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "timeout": 30000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "check-url",
+      "name": "Check URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 400],
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const urlInfo = $('Define URLs to Check').all()[i]?.json || {};\n  \n  const statusCode = item.json.statusCode || 0;\n  const responseTime = item.json.responseTime || 0;\n  const body = item.json.body || '';\n  const error = item.json.error || null;\n  const url = urlInfo.url || '';\n  const name = urlInfo.name || url;\n  const expectedContent = urlInfo.expectedContent || '';\n  const checkType = urlInfo.checkType || 'unknown';\n  \n  let passed = true;\n  let errorMessage = null;\n  \n  if (error) {\n    passed = false;\n    errorMessage = error.message || 'Connection failed';\n  } else if (statusCode < 200 || statusCode >= 400) {\n    passed = false;\n    errorMessage = `HTTP ${statusCode}`;\n  } else if (expectedContent && !body.includes(expectedContent)) {\n    passed = false;\n    errorMessage = `Expected content \"${expectedContent}\" not found`;\n  } else if (responseTime > 10000) {\n    passed = false;\n    errorMessage = `Slow response: ${responseTime}ms`;\n  }\n  \n  let hasChat = false;\n  if (checkType === 'landing' && body) {\n    hasChat = body.includes('chat') || \n              body.includes('widget') || \n              body.includes('messenger') ||\n              body.includes('crisp') ||\n              body.includes('intercom') ||\n              body.includes('tawk');\n  }\n  \n  results.push({\n    json: {\n      url: url,\n      name: name,\n      checkType: checkType,\n      status: statusCode,\n      response_time_ms: responseTime,\n      passed: passed,\n      error_message: errorMessage,\n      has_chat_widget: hasChat,\n      checked_at: new Date().toISOString()\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "evaluate-results",
+      "name": "Evaluate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {
+          "outputFormat": "singleField",
+          "fieldName": "checks"
+        }
+      },
+      "id": "aggregate-results",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1250, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const checks = $input.first().json.checks || [];\nconst mainSiteCheck = checks.find(c => c.checkType === 'main');\nconst failures = checks.filter(c => !c.passed);\n\nlet status = 'healthy';\nif (mainSiteCheck && !mainSiteCheck.passed) {\n  status = 'down';\n} else if (failures.length > 0) {\n  status = 'degraded';\n}\n\nconst staticData = $getWorkflowStaticData('global');\nconst previousStatus = staticData.lastStatus || 'unknown';\nconst wasDown = previousStatus === 'down' || previousStatus === 'degraded';\nconst isRecovered = wasDown && status === 'healthy';\n\nstaticData.lastStatus = status;\nstaticData.lastCheck = new Date().toISOString();\n\nreturn [{\n  json: {\n    status: status,\n    checks: checks,\n    checked_at: new Date().toISOString(),\n    total_checks: checks.length,\n    failed_count: failures.length,\n    failures: failures,\n    has_failures: failures.length > 0,\n    is_recovered: isRecovered,\n    previous_status: previousStatus\n  }\n}];"
+      },
+      "id": "calculate-status",
+      "name": "Calculate Overall Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-failures",
+              "leftValue": "={{ $json.has_failures }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-if-failures",
+      "name": "Any Failures?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1650, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst failures = data.failures || [];\nconst checkedAt = data.checked_at;\nconst status = data.status;\n\nlet emoji = status === 'down' ? '\\u26A0\\uFE0F' : '\\u26A0\\uFE0F';\n\nlet message = `<b>${emoji} NaviApps Monitor Alert</b>\\n\\n`;\nmessage += `<b>Status:</b> ${status.toUpperCase()}\\n`;\nmessage += `<b>Failed checks:</b> ${failures.length}/${data.total_checks}\\n\\n`;\n\nfor (const check of failures) {\n  message += `<b>${check.name}</b>\\n`;\n  message += `URL: ${check.url}\\n`;\n  message += `Error: ${check.error_message}\\n`;\n  if (check.response_time_ms > 0) {\n    message += `Response time: ${check.response_time_ms}ms\\n`;\n  }\n  message += `\\n`;\n}\n\nmessage += `<i>Checked at: ${checkedAt}</i>`;\n\nreturn [{\n  json: {\n    message: message,\n    status: status,\n    checkedAt: checkedAt,\n    originalData: data\n  }\n}];"
+      },
+      "id": "format-alert",
+      "name": "Format Alert Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID }}\",\n  \"text\": {{ JSON.stringify($json.message) }},\n  \"parse_mode\": \"HTML\"\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "send-telegram-alert",
+      "name": "Send Telegram Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2050, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-recovery",
+              "leftValue": "={{ $json.is_recovered }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-if-recovered",
+      "name": "Is Recovered?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1850, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst checkedAt = data.checked_at;\n\nlet message = `<b>\\u2705 NaviApps Monitor - Recovery</b>\\n\\n`;\nmessage += `All checks are now passing!\\n\\n`;\nmessage += `<b>Status:</b> HEALTHY\\n`;\nmessage += `<b>Previous status:</b> ${data.previous_status.toUpperCase()}\\n`;\nmessage += `<b>Total checks:</b> ${data.total_checks}\\n\\n`;\nmessage += `<i>Recovered at: ${checkedAt}</i>`;\n\nreturn [{\n  json: {\n    message: message,\n    status: 'healthy',\n    checkedAt: checkedAt,\n    originalData: data\n  }\n}];"
+      },
+      "id": "format-recovery",
+      "name": "Format Recovery Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2050, 450]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID }}\",\n  \"text\": {{ JSON.stringify($json.message) }},\n  \"parse_mode\": \"HTML\"\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "send-telegram-recovery",
+      "name": "Send Recovery Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2250, 450]
+    },
+    {
+      "parameters": {},
+      "id": "no-action-healthy",
+      "name": "No Action (Healthy)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2050, 600]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: $('Calculate Overall Status').first().json.status, checks: $('Calculate Overall Status').first().json.checks, checked_at: $('Calculate Overall Status').first().json.checked_at }) }}",
+        "options": {}
+      },
+      "id": "webhook-response-failure",
+      "name": "Webhook Response (Failure)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2250, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: $('Calculate Overall Status').first().json.status, checks: $('Calculate Overall Status').first().json.checks, checked_at: $('Calculate Overall Status').first().json.checked_at }) }}",
+        "options": {}
+      },
+      "id": "webhook-response-recovery",
+      "name": "Webhook Response (Recovery)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2450, 450]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: $('Calculate Overall Status').first().json.status, checks: $('Calculate Overall Status').first().json.checks, checked_at: $('Calculate Overall Status').first().json.checked_at }) }}",
+        "options": {}
+      },
+      "id": "webhook-response-healthy",
+      "name": "Webhook Response (Healthy)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2250, 600]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Merge Triggers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Merge Triggers",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Triggers": {
+      "main": [
+        [
+          {
+            "node": "Define URLs to Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Define URLs to Check": {
+      "main": [
+        [
+          {
+            "node": "Check URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check URL": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Results": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "Calculate Overall Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Overall Status": {
+      "main": [
+        [
+          {
+            "node": "Any Failures?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Failures?": {
+      "main": [
+        [
+          {
+            "node": "Format Alert Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Recovered?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Alert Message": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Alert": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response (Failure)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Recovered?": {
+      "main": [
+        [
+          {
+            "node": "Format Recovery Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Action (Healthy)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Recovery Message": {
+      "main": [
+        [
+          {
+            "node": "Send Recovery Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Recovery Alert": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response (Recovery)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Action (Healthy)": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response (Healthy)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "errorWorkflow": "",
+    "timezone": "Europe/Zagreb"
+  },
+  "meta": {
+    "description": "Monitor NaviApps website (naviapps.hr) and demo functionality. Runs twice daily at 09:00 and 18:00, with manual trigger via webhook POST /naviapps-monitor. Checks main site, landing pages, and chat widget presence. Sends Telegram alerts on failures and recovery notifications."
+  }
+}
