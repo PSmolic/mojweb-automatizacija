@@ -22,8 +22,14 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "naviapps-monitor",
+        "authentication": "headerAuth",
         "responseMode": "responseNode",
-        "options": {}
+        "options": {
+          "headerAuth": {
+            "name": "X-Webhook-Secret",
+            "value": "={{ $env.WEBHOOK_SECRET }}"
+          }
+        }
       },
       "id": "webhook-trigger",
       "name": "Webhook Trigger",
@@ -69,6 +75,10 @@
               "fullResponse": true,
               "responseFormat": "text"
             }
+          },
+          "retry": {
+            "maxTries": 2,
+            "timeBetweenTries": 3000
           }
         }
       },
@@ -145,7 +155,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const data = $input.first().json;\nconst failures = data.failures || [];\nconst checkedAt = data.checked_at;\nconst status = data.status;\n\nlet emoji = status === 'down' ? '\\u26A0\\uFE0F' : '\\u26A0\\uFE0F';\n\nlet message = `<b>${emoji} NaviApps Monitor Alert</b>\\n\\n`;\nmessage += `<b>Status:</b> ${status.toUpperCase()}\\n`;\nmessage += `<b>Failed checks:</b> ${failures.length}/${data.total_checks}\\n\\n`;\n\nfor (const check of failures) {\n  message += `<b>${check.name}</b>\\n`;\n  message += `URL: ${check.url}\\n`;\n  message += `Error: ${check.error_message}\\n`;\n  if (check.response_time_ms > 0) {\n    message += `Response time: ${check.response_time_ms}ms\\n`;\n  }\n  message += `\\n`;\n}\n\nmessage += `<i>Checked at: ${checkedAt}</i>`;\n\nreturn [{\n  json: {\n    message: message,\n    status: status,\n    checkedAt: checkedAt,\n    originalData: data\n  }\n}];"
+        "jsCode": "const data = $input.first().json;\nconst failures = data.failures || [];\nconst checkedAt = data.checked_at;\nconst status = data.status;\n\nlet emoji = status === 'down' ? '\\u{1F534}' : '\\u26A0\\uFE0F';\n\nlet message = `<b>${emoji} NaviApps Monitor Alert</b>\\n\\n`;\nmessage += `<b>Status:</b> ${status.toUpperCase()}\\n`;\nmessage += `<b>Failed checks:</b> ${failures.length}/${data.total_checks}\\n\\n`;\n\nfor (const check of failures) {\n  message += `<b>${check.name}</b>\\n`;\n  message += `URL: ${check.url}\\n`;\n  message += `Error: ${check.error_message}\\n`;\n  if (check.response_time_ms > 0) {\n    message += `Response time: ${check.response_time_ms}ms\\n`;\n  }\n  message += `\\n`;\n}\n\nmessage += `<i>Checked at: ${checkedAt}</i>`;\n\nreturn [{\n  json: {\n    message: message,\n    status: status,\n    checkedAt: checkedAt,\n    originalData: data\n  }\n}];"
       },
       "id": "format-alert",
       "name": "Format Alert Message",
@@ -168,7 +178,8 @@
       "name": "Send Telegram Alert",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2050, 300]
+      "position": [2050, 300],
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -224,7 +235,8 @@
       "name": "Send Recovery Alert",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2250, 450]
+      "position": [2250, 450],
+      "continueOnFail": true
     },
     {
       "parameters": {},

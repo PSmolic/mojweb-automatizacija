@@ -1,6 +1,6 @@
 services:
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:1.76.1
     restart: unless-stopped
     ports:
       - "127.0.0.1:5678:5678"
@@ -139,11 +139,11 @@ services:
   # =========================================================================
   # WAHA - WhatsApp HTTP API (Self-hosted)
   # =========================================================================
-  # Dashboard: http://localhost:3000/dashboard
-  # API Docs:  http://localhost:3000/
+  # Dashboard: http://localhost:3002/dashboard
+  # API Docs:  http://localhost:3002/
   # =========================================================================
   waha:
-    image: devlikeapro/waha:latest
+    image: devlikeapro/waha:2024.12.4
     restart: unless-stopped
     ports:
       - "127.0.0.1:3002:3000"
