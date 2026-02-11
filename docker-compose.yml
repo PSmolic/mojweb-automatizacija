@@ -1,6 +1,6 @@
 services:
   n8n:
-    image: n8nio/n8n:1.76.1
+    image: n8nio/n8n:2.7.1
     restart: unless-stopped
     ports:
       - "127.0.0.1:5678:5678"
@@ -22,11 +22,6 @@ services:
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
       - DB_POSTGRESDB_POOL_SIZE=20
 
-      # Security
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=${N8N_USER}
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
-
       # Execution settings
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=168
@@ -36,10 +31,6 @@ services:
       - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true
       - EXECUTIONS_TIMEOUT=3600
       - EXECUTIONS_TIMEOUT_MAX=7200
-
-      # Performance
-      - N8N_PAYLOAD_SIZE_MAX=64
-      - NODE_FUNCTION_ALLOW_EXTERNAL=axios,cheerio,moment
 
     volumes:
       - n8n_data:/home/node/.n8n
