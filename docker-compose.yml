@@ -134,7 +134,7 @@ services:
   # API Docs:  http://localhost:3002/
   # =========================================================================
   waha:
-    image: devlikeapro/waha:2024.12.4
+    image: devlikeapro/waha:latest-2026.2.1
     restart: unless-stopped
     ports:
       - "127.0.0.1:3002:3000"
